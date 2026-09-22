@@ -1,0 +1,6 @@
+name: MaceGuard
+version: 3.0.0
+main: de.example.maceguard.MaceGuard
+api-version: '1.21'
+description: Limits Totem pops to one per player per server tick and prevents same-tick death after a Totem pop.
+author: OpenAI
