@@ -30,3 +30,5 @@ Tick 101:
 - Totem #2 can pop if needed
 
 The plugin does not permanently change damage, does not disable mace kills, and does not provide protection beyond the remainder of the tick in which a Totem successfully pops.
+
+You can enable the plugin with “/antitotembypass” and disable it with “/totembypass”
