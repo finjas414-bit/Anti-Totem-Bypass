@@ -17,23 +17,50 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class MaceGuard extends JavaPlugin implements Listener, CommandExecutor {
 
-    private final Set<UUID> poppedThisTick = ConcurrentHashMap.newKeySet();
+    /*
+     * true  = Anti-Totem-Bypass is enabled
+     * false = Totem bypass is allowed
+     *
+     * Always starts enabled after a server restart.
+     */
     private volatile boolean enabled = true;
+
+    /*
+     * Players who already popped a Totem during the current server tick.
+     */
+    private final Set<UUID> poppedThisTick = ConcurrentHashMap.newKeySet();
 
     @Override
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
 
-        if (getCommand("maceguard") != null) {
-            getCommand("maceguard").setExecutor(this);
+        if (getCommand("totembypass") != null) {
+            getCommand("totembypass").setExecutor(this);
         }
 
-        getLogger().info("MaceGuard enabled. Anti-Totem-Bypass: ON");
+        if (getCommand("antitotembypass") != null) {
+            getCommand("antitotembypass").setExecutor(this);
+        }
+
+        getLogger().info("Anti-Totem-Bypass enabled.");
+        getLogger().info("Protection: ON");
     }
 
+    /**
+     * Handles Totem activation.
+     *
+     * When Anti-Totem-Bypass is enabled:
+     * - Only one Totem may activate per player per server tick.
+     * - Additional Totem activations in the same tick are cancelled.
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onTotemPop(EntityResurrectEvent event) {
-        if (!enabled || !(event.getEntity() instanceof Player player)) {
+
+        if (!enabled) {
+            return;
+        }
+
+        if (!(event.getEntity() instanceof Player player)) {
             return;
         }
 
@@ -43,21 +70,39 @@ public final class MaceGuard extends JavaPlugin implements Listener, CommandExec
 
         UUID uuid = player.getUniqueId();
 
+        // Player already activated a Totem during this tick.
         if (poppedThisTick.contains(uuid)) {
             event.setCancelled(true);
             return;
         }
 
+        // First Totem activation this tick.
         poppedThisTick.add(uuid);
 
-        getServer().getScheduler().runTask(this, () ->
-                poppedThisTick.remove(uuid)
-        );
+        /*
+         * Remove the player from the set on the next server tick.
+         * This means the protection lasts exactly for the current tick.
+         */
+        getServer().getScheduler().runTask(this, () -> {
+            poppedThisTick.remove(uuid);
+        });
     }
 
+    /**
+     * Prevents additional damage after a successful Totem activation
+     * during the same server tick.
+     *
+     * This is important for mechanics that try to trigger several
+     * Totem pops/damage events inside one tick.
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void blockFurtherDamageAfterPop(EntityDamageEvent event) {
-        if (!enabled || !(event.getEntity() instanceof Player player)) {
+
+        if (!enabled) {
+            return;
+        }
+
+        if (!(event.getEntity() instanceof Player player)) {
             return;
         }
 
@@ -66,47 +111,58 @@ public final class MaceGuard extends JavaPlugin implements Listener, CommandExec
         }
     }
 
+    /**
+     * /totembypass
+     *
+     * Disables Anti-Totem-Bypass and allows the bypass mechanic.
+     *
+     * /antitotembypass
+     *
+     * Enables Anti-Totem-Bypass and blocks the bypass mechanic.
+     */
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("maceguard.admin")) {
+    public boolean onCommand(
+            CommandSender sender,
+            Command command,
+            String label,
+            String[] args
+    ) {
+
+        if (!sender.hasPermission("antitotembypass.admin")) {
             sender.sendMessage("§cYou do not have permission to use this command.");
             return true;
         }
 
-        if (args.length == 0) {
-            sendStatus(sender);
+        if (command.getName().equalsIgnoreCase("totembypass")) {
+
+            enabled = false;
+            poppedThisTick.clear();
+
+            sender.sendMessage("§cAnti-Totem-Bypass is now §lOFF§c.");
+            sender.sendMessage("§7Totem bypass is allowed.");
+
+            getLogger().info(
+                    sender.getName() + " disabled Anti-Totem-Bypass."
+            );
+
             return true;
         }
 
-        switch (args[0].toLowerCase()) {
-            case "toggle" -> {
-                enabled = !enabled;
-                sender.sendMessage(enabled
-                        ? "§aMaceGuard Anti-Totem-Bypass is now §lON§a."
-                        : "§cMaceGuard Anti-Totem-Bypass is now §lOFF§c.");
-            }
-            case "on", "enable" -> {
-                enabled = true;
-                sender.sendMessage("§aMaceGuard Anti-Totem-Bypass is now §lON§a.");
-            }
-            case "off", "disable" -> {
-                enabled = false;
-                sender.sendMessage("§cMaceGuard Anti-Totem-Bypass is now §lOFF§c.");
-            }
-            case "status" -> sendStatus(sender);
-            default -> sender.sendMessage(
-                    "§eUsage: §f/maceguard <toggle|on|off|status>"
+        if (command.getName().equalsIgnoreCase("antitotembypass")) {
+
+            enabled = true;
+            poppedThisTick.clear();
+
+            sender.sendMessage("§aAnti-Totem-Bypass is now §lON§a.");
+            sender.sendMessage("§7Totem bypass is blocked.");
+
+            getLogger().info(
+                    sender.getName() + " enabled Anti-Totem-Bypass."
             );
+
+            return true;
         }
 
         return true;
-    }
-
-    private void sendStatus(CommandSender sender) {
-        sender.sendMessage(
-                enabled
-                        ? "§7MaceGuard Anti-Totem-Bypass: §a§lON"
-                        : "§7MaceGuard Anti-Totem-Bypass: §c§lOFF"
-        );
     }
 }
