@@ -1,6 +1,22 @@
 name: Anti-Totem-Bypass
-version: 3.0.0
+version: 3.1.0
 main: de.example.maceguard.MaceGuard
 api-version: '1.21'
-description: Limits Totem pops to one per player per server tick and prevents same-tick death after a Totem pop.
+description: Prevents multiple Totem pops in the same server tick.
 author: EinfachAegis
+
+commands:
+  totembypass:
+    description: Allows the Totem bypass mechanic.
+    usage: /totembypass
+    permission: antitotembypass.admin
+
+  antitotembypass:
+    description: Enables Anti-Totem-Bypass protection.
+    usage: /antitotembypass
+    permission: antitotembypass.admin
+
+permissions:
+  antitotembypass.admin:
+    description: Allows enabling and disabling Anti-Totem-Bypass.
+    default: op
