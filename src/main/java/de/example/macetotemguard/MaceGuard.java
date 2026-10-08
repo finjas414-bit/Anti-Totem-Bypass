@@ -1,5 +1,6 @@
 package de.example.maceguard;
 
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -7,7 +8,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -18,15 +19,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class MaceGuard extends JavaPlugin implements Listener, CommandExecutor {
 
     /*
-     * true  = Anti-Totem-Bypass is enabled
-     * false = Totem bypass is allowed
-     *
-     * Always starts enabled after a server restart.
+     * true  = Anti-Totem-Bypass enabled
+     * false = Totem bypass allowed
      */
     private volatile boolean enabled = true;
 
     /*
-     * Players who already popped a Totem during the current server tick.
+     * Players who have already popped a Totem during this server tick.
      */
     private final Set<UUID> poppedThisTick = ConcurrentHashMap.newKeySet();
 
@@ -47,11 +46,7 @@ public final class MaceGuard extends JavaPlugin implements Listener, CommandExec
     }
 
     /**
-     * Handles Totem activation.
-     *
-     * When Anti-Totem-Bypass is enabled:
-     * - Only one Totem may activate per player per server tick.
-     * - Additional Totem activations in the same tick are cancelled.
+     * Allows only one Totem activation per player per server tick.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onTotemPop(EntityResurrectEvent event) {
@@ -70,18 +65,22 @@ public final class MaceGuard extends JavaPlugin implements Listener, CommandExec
 
         UUID uuid = player.getUniqueId();
 
-        // Player already activated a Totem during this tick.
+        /*
+         * The player has already used a Totem during this tick.
+         * Prevent another Totem from activating.
+         */
         if (poppedThisTick.contains(uuid)) {
             event.setCancelled(true);
             return;
         }
 
-        // First Totem activation this tick.
+        /*
+         * First Totem pop this tick.
+         */
         poppedThisTick.add(uuid);
 
         /*
-         * Remove the player from the set on the next server tick.
-         * This means the protection lasts exactly for the current tick.
+         * Clear the protection on the next server tick.
          */
         getServer().getScheduler().runTask(this, () -> {
             poppedThisTick.remove(uuid);
@@ -89,36 +88,56 @@ public final class MaceGuard extends JavaPlugin implements Listener, CommandExec
     }
 
     /**
-     * Prevents additional damage after a successful Totem activation
+     * Blocks only Mace damage after a Totem has already popped
      * during the same server tick.
      *
-     * This is important for mechanics that try to trigger several
-     * Totem pops/damage events inside one tick.
+     * Other damage types, including projectile/railgun damage,
+     * are NOT blocked.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void blockFurtherDamageAfterPop(EntityDamageEvent event) {
+    public void blockMaceDamageAfterTotem(EntityDamageByEntityEvent event) {
 
         if (!enabled) {
             return;
         }
 
-        if (!(event.getEntity() instanceof Player player)) {
+        if (!(event.getEntity() instanceof Player victim)) {
             return;
         }
 
-        if (poppedThisTick.contains(player.getUniqueId())) {
-            event.setCancelled(true);
+        /*
+         * Has this player already popped a Totem this tick?
+         */
+        if (!poppedThisTick.contains(victim.getUniqueId())) {
+            return;
         }
+
+        /*
+         * Only block direct attacks from a player.
+         */
+        if (!(event.getDamager() instanceof Player attacker)) {
+            return;
+        }
+
+        /*
+         * Only block the attack if the attacker is actually
+         * holding a Mace.
+         */
+        if (attacker.getInventory().getItemInMainHand().getType() != Material.MACE) {
+            return;
+        }
+
+        /*
+         * This is a Mace attack against a player who already
+         * popped a Totem during this tick.
+         */
+        event.setCancelled(true);
     }
 
     /**
      * /totembypass
      *
-     * Disables Anti-Totem-Bypass and allows the bypass mechanic.
-     *
-     * /antitotembypass
-     *
-     * Enables Anti-Totem-Bypass and blocks the bypass mechanic.
+     * Disables Anti-Totem-Bypass.
      */
     @Override
     public boolean onCommand(
@@ -148,13 +167,18 @@ public final class MaceGuard extends JavaPlugin implements Listener, CommandExec
             return true;
         }
 
+        /**
+         * /antitotembypass
+         *
+         * Enables Anti-Totem-Bypass.
+         */
         if (command.getName().equalsIgnoreCase("antitotembypass")) {
 
             enabled = true;
             poppedThisTick.clear();
 
             sender.sendMessage("§aAnti-Totem-Bypass is now §lON§a.");
-            sender.sendMessage("§7Totem bypass is blocked.");
+            sender.sendMessage("§7Mace Totem bypass is blocked.");
 
             getLogger().info(
                     sender.getName() + " enabled Anti-Totem-Bypass."
